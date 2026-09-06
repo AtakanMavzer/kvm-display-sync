@@ -64,31 +64,84 @@ final class DisableActuator: Actuator {
     }
 
     func disconnect() throws {
-        let ext = try selector.external()
+        guard let ext = Displays.external(vendor: selector.vendor, model: selector.model) else {
+            if State.disabled != nil {
+                Log.info("display not in online list and a disabled record exists; treating as already disabled")
+                return
+            }
+            throw ActuatorError.externalDisplayNotFound
+        }
         if !ext.isActive {
             Log.info("display \(ext.id) already inactive; nothing to do")
             return
         }
+        let builtin = Displays.builtin()
+        let record = DisabledDisplay(
+            id: ext.id, wasMain: ext.isMain,
+            originX: Int32(ext.bounds.origin.x), originY: Int32(ext.bounds.origin.y),
+            builtinOriginX: Int32(builtin?.bounds.origin.x ?? 0), builtinOriginY: Int32(builtin?.bounds.origin.y ?? 0))
+
         try transaction("disable display \(ext.id)") { config in
             // If the external is main, hand main over to the built-in first so the menu bar has a home.
-            if ext.isMain, let builtin = Displays.builtin() {
+            if ext.isMain, let builtin {
                 let err = CGConfigureDisplayOrigin(config, builtin.id, 0, 0)
                 guard err == .success else { throw ActuatorError.cg("CGConfigureDisplayOrigin(builtin)", err) }
             }
             let err = configureEnabled(config, ext.id, false)
             guard err == .success else { throw ActuatorError.cg("CGSConfigureDisplayEnabled(false)", err) }
         }
+        // A disabled display drops out of CGGetOnlineDisplayList, so remember it for connect().
+        State.disabled = record
     }
 
     func connect() throws {
-        let ext = try selector.external()
-        if ext.isActive {
+        if let ext = Displays.external(vendor: selector.vendor, model: selector.model), ext.isActive {
             Log.info("display \(ext.id) already active; nothing to do")
+            State.disabled = nil
             return
         }
-        try transaction("enable display \(ext.id)") { config in
-            let err = configureEnabled(config, ext.id, true)
+        let record = State.disabled
+        let id: CGDirectDisplayID
+        if let ext = Displays.external(vendor: selector.vendor, model: selector.model) {
+            id = ext.id
+        } else if let record {
+            id = record.id
+            Log.debug("display not in online list; using remembered ID \(id)")
+        } else {
+            throw ActuatorError.externalDisplayNotFound
+        }
+        try transaction("enable display \(id)") { config in
+            let err = configureEnabled(config, id, true)
             guard err == .success else { throw ActuatorError.cg("CGSConfigureDisplayEnabled(true)", err) }
+        }
+        // Verify it actually came back; the private call can report success without effect.
+        Thread.sleep(forTimeInterval: 0.5)
+        guard let ext = Displays.external(vendor: selector.vendor, model: selector.model), ext.isActive else {
+            throw ActuatorError.cg("display \(id) still not active after enable", .failure)
+        }
+        if let record {
+            restoreArrangement(ext: ext, record: record)
+        }
+        State.disabled = nil
+    }
+
+    /// Puts the external and built-in displays back where they were, including main status.
+    /// Best effort: a failure here leaves the display usable, just arranged by macOS's defaults.
+    private func restoreArrangement(ext: DisplayInfo, record: DisabledDisplay) {
+        guard let builtin = Displays.builtin() else { return }
+        let alreadyRight = ext.isMain == record.wasMain
+            && Int32(ext.bounds.origin.x) == record.originX && Int32(ext.bounds.origin.y) == record.originY
+        if alreadyRight { return }
+        do {
+            try transaction("restore arrangement (external main=\(record.wasMain))") { config in
+                // Whichever display sits at 0,0 becomes main.
+                var err = CGConfigureDisplayOrigin(config, ext.id, record.originX, record.originY)
+                guard err == .success else { throw ActuatorError.cg("CGConfigureDisplayOrigin(external)", err) }
+                err = CGConfigureDisplayOrigin(config, builtin.id, record.builtinOriginX, record.builtinOriginY)
+                guard err == .success else { throw ActuatorError.cg("CGConfigureDisplayOrigin(builtin)", err) }
+            }
+        } catch {
+            Log.error("arrangement restore failed (display is still usable): \(error)")
         }
     }
 
