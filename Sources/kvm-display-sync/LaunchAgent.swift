@@ -1,7 +1,7 @@
 import Foundation
 
 enum LaunchAgent {
-    static let label = "com.atakan.kvm-display-sync"
+    static let label = "io.github.kvm-display-sync"
 
     static var plistPath: String {
         NSString(string: "~/Library/LaunchAgents/\(label).plist").expandingTildeInPath

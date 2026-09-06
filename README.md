@@ -92,7 +92,7 @@ kvm-display-sync uninstall
 ```
 
 `install` copies the binary to `~/.local/bin/kvm-display-sync`, writes
-`~/Library/LaunchAgents/com.atakan.kvm-display-sync.plist`, and loads it.
+`~/Library/LaunchAgents/io.github.kvm-display-sync.plist`, and loads it.
 Logs go to `~/Library/Logs/kvm-display-sync.log`.
 
 ## Options
@@ -122,3 +122,8 @@ Logs go to `~/Library/Logs/kvm-display-sync.log`.
   The debounce absorbs the flap; a real state change still gets applied.
 - Monitor power-off and cable unplug look identical to a KVM switch. The
   desired action is the same, so this is by design.
+- `mirror` needs a built-in display to mirror onto. On a Mac mini or Mac Studio
+  use `disable` (if your monitor routes USB independently of video) or the
+  `command` actuator with a tool of your choice.
+- If the monitor drops the DisplayPort link on switch, macOS removes the
+  display itself and the daemon has nothing to do; it logs that and moves on.

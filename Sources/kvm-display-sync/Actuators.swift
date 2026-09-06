@@ -139,7 +139,11 @@ final class MirrorActuator: Actuator {
     }
 
     func disconnect() throws {
-        let ext = try selector.external()
+        guard let ext = Displays.external(vendor: selector.vendor, model: selector.model) else {
+            // Monitors that drop the DP link on switch are removed by macOS itself; nothing left to do.
+            Log.info("external display not online; already disconnected")
+            return
+        }
         guard let builtin = Displays.builtin() else { throw ActuatorError.builtinDisplayNotFound }
         if ext.mirrorOf == builtin.id {
             Log.info("display \(ext.id) already mirroring built-in; nothing to do")
