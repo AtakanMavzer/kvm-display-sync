@@ -61,58 +61,82 @@ restore the extended layout      mirror external onto built-in
 
 ## Quick start
 
-Requires macOS 13+ and Xcode command line tools.
+One line. It builds from source (needs the Xcode Command Line Tools) and runs a
+short wizard that finds your display and USB device by watching you switch the
+KVM once, then installs a launch agent:
 
 ```sh
-git clone https://github.com/AtakanMavzer/kvm-display-sync.git
-cd kvm-display-sync
-swift build -c release
+curl -fsSL https://raw.githubusercontent.com/AtakanMavzer/kvm-display-sync/main/install.sh | sh
 ```
 
-Find the USB device that belongs to your monitor:
+The wizard takes about a minute. Run it from a terminal on your Mac's built-in
+screen and use the built-in keyboard, since your USB keyboard follows the KVM.
 
-```sh
-.build/release/kvm-display-sync usb        # with the KVM on the Mac
-# switch the KVM to the other computer, then:
-.build/release/kvm-display-sync usb        # the device that vanished is the one
+```
+Step 1/3  Which display does the KVM control?
+  Found one external display, using it:
+    XG27UCDMG  vendor 1715  model 10230  3840x2160  (main)
+
+Step 2/3  Which USB device follows the KVM?
+  Make sure the monitor is currently showing THIS Mac.
+  Press Enter when it is:
+  Now switch the monitor to the OTHER computer using its KVM / input button.
+  Press Enter (on the built-in keyboard) once it has switched:
+  Devices that disappeared:
+    0x0B05:0x1BFE  ROG Gaming Display Aura Device
+    0x0B05:0x1C03  USB2.1 Hub
+    ...
+  Using: ROG Gaming Display Aura Device
+  Switch the monitor back to this Mac.
+  Press Enter once it has switched back:
+  Confirmed: ROG Gaming Display Aura Device is back.
+
+Step 3/3  Install
+  ...
+Done. The daemon is running and will start at login.
 ```
 
-Find your display's EDID vendor and model:
+Afterwards:
 
 ```sh
-.build/release/kvm-display-sync displays
-```
-
-Try it once by hand, then install it as a launch agent:
-
-```sh
-.build/release/kvm-display-sync status \
-    --usb-vendor 0x0B05 --usb-product 0x1BFE \
-    --display-vendor 1715 --display-model 10230
-
-.build/release/kvm-display-sync install \
-    --usb-vendor 0x0B05 --usb-product 0x1BFE \
-    --display-vendor 1715 --display-model 10230
-```
-
-The defaults above are for the ASUS ROG Swift XG27UCDMG; if that's your monitor,
-plain `install` is enough. `install` copies the binary to `~/.local/bin`, writes
-`~/Library/LaunchAgents/io.github.kvm-display-sync.plist`, and loads it. It
-starts at login and survives reboots. Logs go to
-`~/Library/Logs/kvm-display-sync.log`.
-
-```sh
-kvm-display-sync status      # what it sees and whether the display is in sync
-kvm-display-sync uninstall   # unload and remove everything
+~/.local/bin/kvm-display-sync status      # what it sees and whether the display is in sync
+~/.local/bin/kvm-display-sync uninstall   # unload and remove everything
 ```
 
 After the first login, macOS may show a "background item added" notice. Leave
 it allowed under System Settings > General > Login Items & Extensions.
 
+### Manual install
+
+If you'd rather not run a script, or want to pass options yourself:
+
+```sh
+git clone https://github.com/AtakanMavzer/kvm-display-sync.git
+cd kvm-display-sync
+swift build -c release
+.build/release/kvm-display-sync setup              # same wizard
+```
+
+or skip the wizard entirely:
+
+```sh
+.build/release/kvm-display-sync usb        # with the KVM on the Mac, then again after switching away
+.build/release/kvm-display-sync displays   # EDID vendor/model of your monitor
+.build/release/kvm-display-sync install \
+    --usb-vendor 0x0B05 --usb-product 0x1BFE \
+    --display-vendor 1715 --display-model 10230
+```
+
+`install` copies the binary to `~/.local/bin`, writes
+`~/Library/LaunchAgents/io.github.kvm-display-sync.plist`, and loads it. It
+starts at login and survives reboots. Logs go to
+`~/Library/Logs/kvm-display-sync.log`.
+
 ## Commands
 
 | command       | what it does |
 |---------------|--------------|
+| `setup`       | Interactive first run: detects display and USB device, then installs |
 | `watch`       | Run in the foreground (this is what the launch agent runs) |
 | `status`      | Show USB presence, display state, and whether they agree |
 | `displays`    | List displays with EDID vendor/model, main/active flags, and bounds |

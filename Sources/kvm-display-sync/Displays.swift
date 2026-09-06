@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import AppKit
 
 struct DisplayInfo {
     let id: CGDirectDisplayID
@@ -47,6 +48,14 @@ enum Displays {
             isOnline: CGDisplayIsOnline(id) != 0,
             mirrorOf: CGDisplayMirrorsDisplay(id),
             bounds: CGDisplayBounds(id))
+    }
+
+    /// Human-readable name as shown in System Settings (e.g. "XG27UCDMG"), via AppKit.
+    static func name(for id: CGDirectDisplayID) -> String? {
+        let key = NSDeviceDescriptionKey("NSScreenNumber")
+        return NSScreen.screens.first(where: {
+            ($0.deviceDescription[key] as? NSNumber)?.uint32Value == id
+        })?.localizedName
     }
 
     static func builtin() -> DisplayInfo? {

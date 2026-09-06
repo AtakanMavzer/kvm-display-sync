@@ -123,6 +123,7 @@ USAGE
   kvm-display-sync <command> [options]
 
 COMMANDS
+  setup        Interactive first run: detects your display and USB device, then installs.
   watch        Run in the foreground (what the launch agent runs).
   status       Show USB presence, display state, and what watch would do.
   displays     List displays macOS currently knows about.
@@ -208,6 +209,9 @@ do {
         let actuator = try makeActuator(opts)
         if which == "off" { try actuator.disconnect() } else { try actuator.connect() }
 
+    case "setup":
+        try Setup.run(base: opts)
+
     case "install":
         _ = try makeActuator(opts) // validate before writing anything
         try LaunchAgent.install(watchArguments: opts.watchArguments)
@@ -219,9 +223,11 @@ do {
         throw UsageError.message("unknown command '\(command)'\n\n\(usage)")
     }
 } catch let e as UsageError {
+    fflush(stdout)
     FileHandle.standardError.write(Data("error: \(e)\n".utf8))
     exit(2)
 } catch {
+    fflush(stdout)
     FileHandle.standardError.write(Data("error: \(error)\n".utf8))
     exit(1)
 }
