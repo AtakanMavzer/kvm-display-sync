@@ -27,8 +27,9 @@ enable display      disable display
 - `USBWatcher` registers `IOServiceAddMatchingNotification` for one specific USB
   device (default: the "ROG Gaming Display Aura Device", `0x0B05:0x1BFE`, which
   lives inside the monitor and is never confused with a keyboard or mouse).
-- `Daemon` debounces events for two seconds, re-queries the registry, and acts
-  only on real transitions. Failed actions retry a few times with a delay
+- `Daemon` debounces events (two seconds on detach, a fraction of a second on
+  attach so the mirrored image is barely visible), re-queries the registry, and
+  acts only on real transitions. Failed actions retry a few times with a delay
   (needed on switch-back, when the DP link can renegotiate after USB comes up).
 - An `Actuator` does the display work. Four are available:
 
@@ -106,7 +107,8 @@ Logs go to `~/Library/Logs/kvm-display-sync.log`.
 --actuator <kind>       mirror | disable | command | betterdisplay
 --on-connect <cmd>      Shell command for the command actuator
 --on-disconnect <cmd>   Shell command for the command actuator
---debounce <seconds>    Wait after a USB event before acting (default 2.0)
+--debounce <seconds>    Wait after the hub disappears before disconnecting (default 2.0)
+--connect-debounce <s>  Wait after the hub appears before reconnecting (default 0.3)
 --no-initial-sync       Don't apply the current state at startup
 --verbose, -v           Debug logging
 ```

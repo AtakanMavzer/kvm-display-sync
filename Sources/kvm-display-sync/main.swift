@@ -18,6 +18,7 @@ struct Options {
     var onConnect: String?
     var onDisconnect: String?
     var debounce: TimeInterval = 2.0
+    var connectDebounce: TimeInterval = 0.3
     var initialSync = true
     var verbose = false
 
@@ -28,6 +29,7 @@ struct Options {
             "--usb-product", String(format: "0x%04X", usbProduct),
             "--actuator", actuator,
             "--debounce", String(debounce),
+            "--connect-debounce", String(connectDebounce),
             "--display-name", displayName,
         ]
         if let v = displayVendor, let m = displayModel {
@@ -83,6 +85,10 @@ func parse(_ argv: [String]) throws -> (command: String, positional: [String], o
             let s = try next(a)
             guard let d = Double(s), d >= 0 else { throw UsageError.message("--debounce: expected seconds, got '\(s)'") }
             opts.debounce = d
+        case "--connect-debounce":
+            let s = try next(a)
+            guard let d = Double(s), d >= 0 else { throw UsageError.message("--connect-debounce: expected seconds, got '\(s)'") }
+            opts.connectDebounce = d
         case "--no-initial-sync": opts.initialSync = false
         case "--verbose", "-v": opts.verbose = true
         case "--help", "-h": positional.insert("help", at: 0)
@@ -140,7 +146,8 @@ OPTIONS
                             betterdisplay BetterDisplay Pro CLI (needs Pro + connection management)
   --on-connect <cmd>      Shell command for the command actuator (KVM back on Mac)
   --on-disconnect <cmd>   Shell command for the command actuator (KVM away)
-  --debounce <seconds>    Wait after a USB event before acting (default 2.0)
+  --debounce <seconds>    Wait after the hub disappears before disconnecting (default 2.0)
+  --connect-debounce <s>  Wait after the hub appears before reconnecting (default 0.3)
   --no-initial-sync       Don't apply the current state at startup
   --verbose, -v           Debug logging
 """
@@ -179,7 +186,8 @@ do {
     case "watch":
         let actuator = try makeActuator(opts)
         let daemon = Daemon(vendor: opts.usbVendor, product: opts.usbProduct, actuator: actuator,
-                            debounce: opts.debounce, initialSync: opts.initialSync)
+                            debounce: opts.debounce, connectDebounce: opts.connectDebounce,
+                            initialSync: opts.initialSync)
         try daemon.run()
 
     case "status":

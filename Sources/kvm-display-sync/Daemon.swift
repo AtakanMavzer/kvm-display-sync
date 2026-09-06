@@ -5,6 +5,7 @@ final class Daemon {
     private let watcher: USBWatcher
     private let actuator: Actuator
     private let debounce: TimeInterval
+    private let connectDebounce: TimeInterval
     private let initialSync: Bool
     private let maxRetries = 5
     private let retryDelay: TimeInterval = 3
@@ -14,18 +15,27 @@ final class Daemon {
     private var pendingTimer: Timer?
     private var retriesLeft = 0
 
-    init(vendor: Int, product: Int, actuator: Actuator, debounce: TimeInterval, initialSync: Bool) {
+    init(vendor: Int, product: Int, actuator: Actuator, debounce: TimeInterval,
+         connectDebounce: TimeInterval, initialSync: Bool) {
         self.actuator = actuator
         self.debounce = debounce
+        self.connectDebounce = connectDebounce
         self.initialSync = initialSync
         var handlerRef: (() -> Void)?
         self.watcher = USBWatcher(vendor: vendor, product: product) { handlerRef?() }
-        handlerRef = { [weak self] in self?.scheduleEvaluate(reason: "usb event") }
+        handlerRef = { [weak self] in
+            guard let self else { return }
+            // Device present at event time means we're heading towards connect: act fast so the
+            // mirrored image is on screen as briefly as possible. Disconnect keeps the full debounce.
+            let towardsConnect = self.watcher.isPresent
+            self.scheduleEvaluate(reason: towardsConnect ? "usb attach" : "usb detach",
+                                  after: towardsConnect ? self.connectDebounce : nil)
+        }
     }
 
     func run() throws {
-        Log.info(String(format: "watching USB vendor=0x%04X product=0x%04X, actuator=%@, debounce=%.1fs",
-                        watcher.vendor, watcher.product, actuator.name, debounce))
+        Log.info(String(format: "watching USB vendor=0x%04X product=0x%04X, actuator=%@, debounce=%.1fs (connect %.1fs)",
+                        watcher.vendor, watcher.product, actuator.name, debounce, connectDebounce))
         try watcher.start()
         installSignalHandlers()
 
