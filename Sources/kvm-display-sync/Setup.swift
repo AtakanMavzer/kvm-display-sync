@@ -103,8 +103,11 @@ enum Setup {
 
     private static func describe(_ d: DisplayInfo) -> String {
         let name = Displays.name(for: d.id) ?? "display \(d.id)"
+        let mode = CGDisplayCopyDisplayMode(d.id)
+        let w = mode?.pixelWidth ?? Int(d.bounds.width)
+        let h = mode?.pixelHeight ?? Int(d.bounds.height)
         return String(format: "%@  vendor %u  model %u  %ldx%ld%@", name, d.vendor, d.model,
-                      CGDisplayPixelsWide(d.id), CGDisplayPixelsHigh(d.id), d.isMain ? "  (main)" : "")
+                      w, h, d.isMain ? "  (main)" : "")
     }
 
     private static func fmt(_ d: (vendor: Int, product: Int, name: String)) -> String {
