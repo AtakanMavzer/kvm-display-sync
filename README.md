@@ -5,7 +5,7 @@ built-in KVM switches to another computer, macOS keeps treating the monitor as a
 connected screen. Windows open on a display you can't see, the menu bar and mouse
 cursor vanish onto it, and everything shuffles around when you switch back.
 
-`kvm-display-sync` is a tiny background daemon (Swift, zero dependencies, ~10 MB
+`kvm-display-sync` is a tiny background daemon (Swift, zero dependencies, ~35 MB
 RAM, 0% idle CPU) that detects the KVM switch through the monitor's USB hub and
 fixes the display layout automatically, in both directions.
 
@@ -57,9 +57,10 @@ restore the extended layout      mirror external onto built-in
   main display) when it comes back. Mirroring keeps the video link alive, which
   matters: see [Why mirror, not disable](#why-mirror-not-disable).
 - **Sleep-proof**: the daemon reads the real display state from the system
-  rather than remembering what it last did, pauses during sleep, re-checks a
-  few seconds after wake, and reconciles every 30 seconds as a safety net. A
-  KVM that switches while the Mac is asleep is caught on wake.
+  rather than remembering what it last did, pauses during sleep, re-checks
+  right after wake and on every macOS display-layout change, and reconciles
+  every 30 seconds as a safety net. A KVM that switches while the Mac is
+  asleep is caught the moment the display comes back.
 - **Recovery**: on stop or crash the daemon restores the display, so it never
   leaves you stranded. `launchd` restarts it automatically.
 

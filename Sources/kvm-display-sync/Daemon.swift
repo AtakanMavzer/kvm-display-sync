@@ -1,4 +1,6 @@
 import Foundation
+import AppKit
+import CoreGraphics
 import IOKit
 import IOKit.pwr_mgt
 
@@ -14,7 +16,8 @@ final class Daemon {
 
     private let retryDelay: TimeInterval = 3
     private let maxRetryDelay: TimeInterval = 60
-    private let wakeSettleDelay: TimeInterval = 5
+    private let wakeSettleDelay: TimeInterval = 1
+    private let displayChangeDelay: TimeInterval = 0.5
 
     /// Fallback memory for actuators that can't report their state (command, betterdisplay).
     private var applied: Bool?
@@ -48,6 +51,7 @@ final class Daemon {
         try watcher.start()
         installSignalHandlers()
         installSleepWakeHandlers()
+        installDisplayChangeHandler()
 
         if initialSync {
             // Let the run loop settle first; on login the USB tree can still be enumerating.
@@ -61,7 +65,11 @@ final class Daemon {
                 self?.evaluate(reason: "periodic")
             }
         }
-        RunLoop.main.run()
+        // CoreGraphics only delivers display-reconfiguration callbacks to a process running an
+        // AppKit event loop. Run one, without a Dock icon or menu bar.
+        let app = NSApplication.shared
+        app.setActivationPolicy(.prohibited)
+        app.run()
     }
 
     // MARK: - Evaluation
@@ -128,18 +136,22 @@ final class Daemon {
     // IOMessage.h defines these via macros Swift doesn't import.
     private static let msgCanSystemSleep: UInt32 = 0xE000_0270
     private static let msgSystemWillSleep: UInt32 = 0xE000_0280
+    private static let msgSystemWillNotSleep: UInt32 = 0xE000_0290
     private static let msgSystemHasPoweredOn: UInt32 = 0xE000_0300
 
     private func handlePowerMessage(_ type: UInt32, _ argument: UnsafeMutableRawPointer?) {
         switch type {
-        case Daemon.msgSystemWillSleep, Daemon.msgCanSystemSleep:
-            if !asleep {
-                Log.info("system going to sleep; pausing")
-                asleep = true
-                pendingTimer?.invalidate()
-            }
+        case Daemon.msgCanSystemSleep:
+            // Only a request; it can still be vetoed. Acknowledge, don't pause yet.
+            IOAllowPowerChange(powerConnection, Int(bitPattern: argument))
+        case Daemon.msgSystemWillSleep:
+            Log.info("system going to sleep; pausing")
+            asleep = true
+            pendingTimer?.invalidate()
             // We must acknowledge or the system waits up to 30s for us.
             IOAllowPowerChange(powerConnection, Int(bitPattern: argument))
+        case Daemon.msgSystemWillNotSleep:
+            asleep = false
         case Daemon.msgSystemHasPoweredOn:
             Log.info("system woke; re-checking in \(Int(wakeSettleDelay))s")
             asleep = false
@@ -147,6 +159,23 @@ final class Daemon {
             scheduleEvaluate(reason: "wake", after: wakeSettleDelay)
         default:
             break
+        }
+    }
+
+    // MARK: - Display changes
+
+    /// macOS tells us whenever the display layout changes: a display coming online after wake, a
+    /// user toggling mirroring, or our own actions. Re-evaluate after a short settle.
+    private func installDisplayChangeHandler() {
+        let refcon = Unmanaged.passUnretained(self).toOpaque()
+        let callback: CGDisplayReconfigurationCallBack = { _, flags, refcon in
+            guard let refcon, !flags.contains(.beginConfigurationFlag) else { return }
+            let daemon = Unmanaged<Daemon>.fromOpaque(refcon).takeUnretainedValue()
+            daemon.scheduleEvaluate(reason: "display change", after: daemon.displayChangeDelay)
+        }
+        let err = CGDisplayRegisterReconfigurationCallback(callback, refcon)
+        if err != .success {
+            Log.error("CGDisplayRegisterReconfigurationCallback failed: \(err.label)")
         }
     }
 
