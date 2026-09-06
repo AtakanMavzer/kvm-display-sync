@@ -34,13 +34,27 @@ enable display      disable display
 
 | actuator        | mechanism                                            | notes |
 |-----------------|------------------------------------------------------|-------|
-| `disable`       | private `CGSConfigureDisplayEnabled`                 | default; removes the display from the layout |
-| `mirror`        | public `CGConfigureDisplayMirrorOfDisplay`           | fallback; mirrors external onto built-in |
+| `mirror`        | public `CGConfigureDisplayMirrorOfDisplay`           | default; mirrors external onto built-in, keeps the video link alive |
+| `disable`       | private `CGSConfigureDisplayEnabled`                 | removes the display entirely; see the trap below |
 | `command`       | your own `--on-connect` / `--on-disconnect` shell    | anything |
 | `betterdisplay` | BetterDisplay's CLI `set --connected=on/off`         | needs BetterDisplay Pro |
 
-On SIGTERM the daemon re-enables the display if it had disabled it, so stopping
-the agent never leaves the screen stranded.
+Both `mirror` and `disable` record the arrangement (positions and which display
+is main) before acting and restore it on reconnect, so the layout comes back
+exactly as it was instead of macOS's default placement.
+
+On SIGTERM the daemon reconnects the display if it had disconnected it, so
+stopping the agent never leaves the screen stranded.
+
+### Why mirror is the default, not disable
+
+`disable` works on macOS 26 and is the cleaner result: the display is gone.
+But it also drops the DisplayPort output. On the XG27UCDMG that is a trap:
+when the KVM switches back to the Mac the monitor sees "USB-C no signal",
+never routes its USB hub to the Mac, and the daemon never gets the event that
+would re-enable the display. `mirror` keeps a signal on the wire, so the
+switch-back is always detected. Use `disable` only if your monitor routes USB
+independently of video.
 
 ## Build
 
@@ -66,14 +80,13 @@ kvm-display-sync test off    # display should drop out of the layout
 kvm-display-sync test on     # and come back
 ```
 
-If `test on` cannot bring it back, turn the monitor off and on again (or replug),
-then try `--actuator mirror` instead.
+If `test on` cannot bring it back, turn the monitor off and on again (or replug).
 
 ## Install as a launch agent
 
 ```
-kvm-display-sync install                       # defaults: XG27UCDMG, disable actuator
-kvm-display-sync install --actuator mirror     # or any other option set
+kvm-display-sync install                       # defaults: XG27UCDMG, mirror actuator
+kvm-display-sync install --actuator disable    # or any other option set
 kvm-display-sync uninstall
 ```
 
@@ -90,7 +103,7 @@ Logs go to `~/Library/Logs/kvm-display-sync.log`.
 --display-model <n>     EDID model of the display to manage (default 10230)
 --any-external          Manage the first non-builtin display instead
 --display-name <name>   Name for the betterdisplay actuator (default XG27UCDMG)
---actuator <kind>       disable | mirror | command | betterdisplay
+--actuator <kind>       mirror | disable | command | betterdisplay
 --on-connect <cmd>      Shell command for the command actuator
 --on-disconnect <cmd>   Shell command for the command actuator
 --debounce <seconds>    Wait after a USB event before acting (default 2.0)
@@ -100,8 +113,9 @@ Logs go to `~/Library/Logs/kvm-display-sync.log`.
 
 ## Caveats
 
-- `disable` relies on an undocumented CoreGraphics call. It is checked at
-  startup and can be swapped for `mirror` without touching anything else.
+- `disable` relies on an undocumented CoreGraphics call and, on this monitor,
+  breaks switch-back detection (see above). It stays available for hardware
+  where it works.
 - Sleep/wake and monitor power cycles also make the hub vanish and return.
   The debounce absorbs the flap; a real state change still gets applied.
 - Monitor power-off and cable unplug look identical to a KVM switch. The

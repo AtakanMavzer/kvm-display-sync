@@ -14,7 +14,7 @@ struct Options {
     var displayModel: UInt32? = 10230
     var displayName = "XG27UCDMG"
 
-    var actuator = "disable"
+    var actuator = "mirror"
     var onConnect: String?
     var onDisconnect: String?
     var debounce: TimeInterval = 2.0
@@ -133,7 +133,7 @@ OPTIONS
   --display-model <n>     EDID model of the display to manage (default 10230)
   --any-external          Manage the first non-builtin display instead of matching vendor/model
   --display-name <name>   Display name for the betterdisplay actuator (default XG27UCDMG)
-  --actuator <kind>       disable | mirror | command | betterdisplay (default disable)
+  --actuator <kind>       mirror | disable | command | betterdisplay (default mirror)
                             disable       private CGSConfigureDisplayEnabled, removes the display
                             mirror        public API, mirrors external onto built-in
                             command       run --on-connect / --on-disconnect shell commands

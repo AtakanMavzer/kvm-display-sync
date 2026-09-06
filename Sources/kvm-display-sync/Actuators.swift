@@ -81,7 +81,7 @@ final class DisableActuator: Actuator {
             originX: Int32(ext.bounds.origin.x), originY: Int32(ext.bounds.origin.y),
             builtinOriginX: Int32(builtin?.bounds.origin.x ?? 0), builtinOriginY: Int32(builtin?.bounds.origin.y ?? 0))
 
-        try transaction("disable display \(ext.id)") { config in
+        try displayTransaction("disable display \(ext.id)") { config in
             // If the external is main, hand main over to the built-in first so the menu bar has a home.
             if ext.isMain, let builtin {
                 let err = CGConfigureDisplayOrigin(config, builtin.id, 0, 0)
@@ -110,7 +110,7 @@ final class DisableActuator: Actuator {
         } else {
             throw ActuatorError.externalDisplayNotFound
         }
-        try transaction("enable display \(id)") { config in
+        try displayTransaction("enable display \(id)") { config in
             let err = configureEnabled(config, id, true)
             guard err == .success else { throw ActuatorError.cg("CGSConfigureDisplayEnabled(true)", err) }
         }
@@ -123,41 +123,6 @@ final class DisableActuator: Actuator {
             restoreArrangement(ext: ext, record: record)
         }
         State.disabled = nil
-    }
-
-    /// Puts the external and built-in displays back where they were, including main status.
-    /// Best effort: a failure here leaves the display usable, just arranged by macOS's defaults.
-    private func restoreArrangement(ext: DisplayInfo, record: DisabledDisplay) {
-        guard let builtin = Displays.builtin() else { return }
-        let alreadyRight = ext.isMain == record.wasMain
-            && Int32(ext.bounds.origin.x) == record.originX && Int32(ext.bounds.origin.y) == record.originY
-        if alreadyRight { return }
-        do {
-            try transaction("restore arrangement (external main=\(record.wasMain))") { config in
-                // Whichever display sits at 0,0 becomes main.
-                var err = CGConfigureDisplayOrigin(config, ext.id, record.originX, record.originY)
-                guard err == .success else { throw ActuatorError.cg("CGConfigureDisplayOrigin(external)", err) }
-                err = CGConfigureDisplayOrigin(config, builtin.id, record.builtinOriginX, record.builtinOriginY)
-                guard err == .success else { throw ActuatorError.cg("CGConfigureDisplayOrigin(builtin)", err) }
-            }
-        } catch {
-            Log.error("arrangement restore failed (display is still usable): \(error)")
-        }
-    }
-
-    private func transaction(_ label: String, _ body: (CGDisplayConfigRef) throws -> Void) throws {
-        var config: CGDisplayConfigRef?
-        let begin = CGBeginDisplayConfiguration(&config)
-        guard begin == .success, let config else { throw ActuatorError.cg("CGBeginDisplayConfiguration", begin) }
-        do {
-            try body(config)
-        } catch {
-            CGCancelDisplayConfiguration(config)
-            throw error
-        }
-        let complete = CGCompleteDisplayConfiguration(config, .forSession)
-        guard complete == .success else { throw ActuatorError.cg("CGCompleteDisplayConfiguration(\(label))", complete) }
-        Log.info("\(label): ok")
     }
 }
 
@@ -180,34 +145,38 @@ final class MirrorActuator: Actuator {
             Log.info("display \(ext.id) already mirroring built-in; nothing to do")
             return
         }
+        let record = DisabledDisplay(
+            id: ext.id, wasMain: ext.isMain,
+            originX: Int32(ext.bounds.origin.x), originY: Int32(ext.bounds.origin.y),
+            builtinOriginX: Int32(builtin.bounds.origin.x), builtinOriginY: Int32(builtin.bounds.origin.y))
         try configure("mirror \(ext.id) onto \(builtin.id)") { config in
             CGConfigureDisplayMirrorOfDisplay(config, ext.id, builtin.id)
         }
+        State.disabled = record
     }
 
     func connect() throws {
         let ext = try selector.external()
         if ext.mirrorOf == kCGNullDirectDisplay {
             Log.info("display \(ext.id) not mirrored; nothing to do")
+            State.disabled = nil
             return
         }
         try configure("unmirror \(ext.id)") { config in
             CGConfigureDisplayMirrorOfDisplay(config, ext.id, kCGNullDirectDisplay)
         }
+        Thread.sleep(forTimeInterval: 0.5)
+        if let record = State.disabled, let fresh = Displays.external(vendor: selector.vendor, model: selector.model) {
+            restoreArrangement(ext: fresh, record: record)
+        }
+        State.disabled = nil
     }
 
     private func configure(_ label: String, _ body: (CGDisplayConfigRef) -> CGError) throws {
-        var config: CGDisplayConfigRef?
-        let begin = CGBeginDisplayConfiguration(&config)
-        guard begin == .success, let config else { throw ActuatorError.cg("CGBeginDisplayConfiguration", begin) }
-        let err = body(config)
-        guard err == .success else {
-            CGCancelDisplayConfiguration(config)
-            throw ActuatorError.cg(label, err)
+        try displayTransaction(label) { config in
+            let err = body(config)
+            guard err == .success else { throw ActuatorError.cg(label, err) }
         }
-        let complete = CGCompleteDisplayConfiguration(config, .forSession)
-        guard complete == .success else { throw ActuatorError.cg("CGCompleteDisplayConfiguration(\(label))", complete) }
-        Log.info("\(label): ok")
     }
 }
 
@@ -259,6 +228,44 @@ final class BetterDisplayActuator: Actuator {
         }
         Log.info("betterdisplay connected=\(value): \(out.trimmingCharacters(in: .whitespacesAndNewlines))")
     }
+}
+
+// MARK: - Shared display configuration helpers
+
+/// Puts the external and built-in displays back where they were, including main status.
+/// Best effort: a failure here leaves the display usable, just arranged by macOS's defaults.
+func restoreArrangement(ext: DisplayInfo, record: DisabledDisplay) {
+    guard let builtin = Displays.builtin() else { return }
+    let alreadyRight = ext.isMain == record.wasMain
+        && Int32(ext.bounds.origin.x) == record.originX && Int32(ext.bounds.origin.y) == record.originY
+    if alreadyRight { return }
+    do {
+        try displayTransaction("restore arrangement (external main=\(record.wasMain))") { config in
+            // Whichever display sits at 0,0 becomes main.
+            var err = CGConfigureDisplayOrigin(config, ext.id, record.originX, record.originY)
+            guard err == .success else { throw ActuatorError.cg("CGConfigureDisplayOrigin(external)", err) }
+            err = CGConfigureDisplayOrigin(config, builtin.id, record.builtinOriginX, record.builtinOriginY)
+            guard err == .success else { throw ActuatorError.cg("CGConfigureDisplayOrigin(builtin)", err) }
+        }
+    } catch {
+        Log.error("arrangement restore failed (display is still usable): \(error)")
+    }
+}
+
+/// Runs a CoreGraphics display configuration transaction, cancelling on any thrown error.
+func displayTransaction(_ label: String, _ body: (CGDisplayConfigRef) throws -> Void) throws {
+    var config: CGDisplayConfigRef?
+    let begin = CGBeginDisplayConfiguration(&config)
+    guard begin == .success, let config else { throw ActuatorError.cg("CGBeginDisplayConfiguration", begin) }
+    do {
+        try body(config)
+    } catch {
+        CGCancelDisplayConfiguration(config)
+        throw error
+    }
+    let complete = CGCompleteDisplayConfiguration(config, .forSession)
+    guard complete == .success else { throw ActuatorError.cg("CGCompleteDisplayConfiguration(\(label))", complete) }
+    Log.info("\(label): ok")
 }
 
 // MARK: - Shell helper
