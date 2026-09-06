@@ -56,6 +56,10 @@ restore the extended layout      mirror external onto built-in
   while the KVM is away, and restore the previous arrangement (positions and
   main display) when it comes back. Mirroring keeps the video link alive, which
   matters: see [Why mirror, not disable](#why-mirror-not-disable).
+- **Sleep-proof**: the daemon reads the real display state from the system
+  rather than remembering what it last did, pauses during sleep, re-checks a
+  few seconds after wake, and reconciles every 30 seconds as a safety net. A
+  KVM that switches while the Mac is asleep is caught on wake.
 - **Recovery**: on stop or crash the daemon restores the display, so it never
   leaves you stranded. `launchd` restarts it automatically.
 
@@ -160,6 +164,7 @@ starts at login and survives reboots. Logs go to
 --on-disconnect <cmd>   Shell command for the command actuator (KVM away)
 --debounce <seconds>    Wait after the hub disappears before disconnecting (default 2.0)
 --connect-debounce <s>  Wait after the hub appears before reconnecting (default 0.3)
+--reconcile <seconds>   Re-check USB vs display state this often; 0 disables (default 30)
 --no-initial-sync       Don't apply the current state at startup
 --verbose, -v           Debug logging
 ```

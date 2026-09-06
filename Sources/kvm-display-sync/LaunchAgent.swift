@@ -48,13 +48,37 @@ enum LaunchAgent {
         try data.write(to: URL(fileURLWithPath: plistPath))
         Log.info("wrote \(plistPath)")
 
-        _ = try? Shell.capture("launchctl bootout gui/\(getuid())/\(label)", timeout: 10)
-        try Shell.run("launchctl bootstrap gui/\(getuid()) \"\(plistPath)\"")
+        try unload()
+        // bootout returns before the old process has finished its shutdown (it restores the
+        // display first). Bootstrapping too early fails, so retry briefly.
+        var lastError: Error?
+        for attempt in 1...5 {
+            do {
+                try Shell.run("launchctl bootstrap gui/\(getuid()) \"\(plistPath)\"")
+                lastError = nil
+                break
+            } catch {
+                lastError = error
+                Log.debug("bootstrap attempt \(attempt) failed: \(error)")
+                Thread.sleep(forTimeInterval: 1)
+            }
+        }
+        if let lastError { throw lastError }
         Log.info("loaded launch agent \(label); log at \(logPath)")
     }
 
-    static func uninstall() throws {
+    /// Unloads the agent if present and waits for its process to go away.
+    private static func unload() throws {
         _ = try? Shell.capture("launchctl bootout gui/\(getuid())/\(label)", timeout: 10)
+        for _ in 0..<50 {
+            let out = (try? Shell.capture("launchctl print gui/\(getuid())/\(label) 2>/dev/null | grep -c 'state = running' || true", timeout: 5)) ?? "0"
+            if out.trimmingCharacters(in: .whitespacesAndNewlines) == "0" { return }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+    }
+
+    static func uninstall() throws {
+        try unload()
         let fm = FileManager.default
         if fm.fileExists(atPath: plistPath) {
             try fm.removeItem(atPath: plistPath)

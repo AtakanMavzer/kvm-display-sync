@@ -87,7 +87,9 @@ extension CGError {
         case .typeCheck: return "typeCheck"
         case .invalidOperation: return "invalidOperation"
         case .noneAvailable: return "noneAvailable"
-        @unknown default: return "CGError(\(rawValue))"
+        @unknown default:
+            // 1014 shows up when the window server is asleep or mid-transition and times out.
+            return rawValue == 1014 ? "CGError(1014, window server busy or asleep)" : "CGError(\(rawValue))"
         }
     }
 }

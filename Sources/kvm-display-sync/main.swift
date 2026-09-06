@@ -19,6 +19,7 @@ struct Options {
     var onDisconnect: String?
     var debounce: TimeInterval = 2.0
     var connectDebounce: TimeInterval = 0.3
+    var reconcileInterval: TimeInterval = 30
     var initialSync = true
     var verbose = false
 
@@ -30,6 +31,7 @@ struct Options {
             "--actuator", actuator,
             "--debounce", String(debounce),
             "--connect-debounce", String(connectDebounce),
+            "--reconcile", String(reconcileInterval),
             "--display-name", displayName,
         ]
         if let v = displayVendor, let m = displayModel {
@@ -89,6 +91,10 @@ func parse(_ argv: [String]) throws -> (command: String, positional: [String], o
             let s = try next(a)
             guard let d = Double(s), d >= 0 else { throw UsageError.message("--connect-debounce: expected seconds, got '\(s)'") }
             opts.connectDebounce = d
+        case "--reconcile":
+            let s = try next(a)
+            guard let d = Double(s), d >= 0 else { throw UsageError.message("--reconcile: expected seconds, got '\(s)'") }
+            opts.reconcileInterval = d
         case "--no-initial-sync": opts.initialSync = false
         case "--verbose", "-v": opts.verbose = true
         case "--help", "-h": positional.insert("help", at: 0)
@@ -149,6 +155,7 @@ OPTIONS
   --on-disconnect <cmd>   Shell command for the command actuator (KVM away)
   --debounce <seconds>    Wait after the hub disappears before disconnecting (default 2.0)
   --connect-debounce <s>  Wait after the hub appears before reconnecting (default 0.3)
+  --reconcile <seconds>   Re-check USB vs display state this often; 0 disables (default 30)
   --no-initial-sync       Don't apply the current state at startup
   --verbose, -v           Debug logging
 """
@@ -188,7 +195,7 @@ do {
         let actuator = try makeActuator(opts)
         let daemon = Daemon(vendor: opts.usbVendor, product: opts.usbProduct, actuator: actuator,
                             debounce: opts.debounce, connectDebounce: opts.connectDebounce,
-                            initialSync: opts.initialSync)
+                            reconcileInterval: opts.reconcileInterval, initialSync: opts.initialSync)
         try daemon.run()
 
     case "status":

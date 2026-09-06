@@ -8,6 +8,13 @@ protocol Actuator {
     func connect() throws
     /// KVM is away: make macOS stop treating the display as usable desktop space.
     func disconnect() throws
+    /// What the display is doing right now, read from the system: true = connected, false = disconnected,
+    /// nil = this actuator cannot tell (the daemon then falls back to remembering what it last applied).
+    func isConnected() -> Bool?
+}
+
+extension Actuator {
+    func isConnected() -> Bool? { nil }
 }
 
 enum ActuatorError: Error, CustomStringConvertible {
@@ -124,6 +131,11 @@ final class DisableActuator: Actuator {
         }
         State.disabled = nil
     }
+
+    func isConnected() -> Bool? {
+        guard let ext = Displays.external(vendor: selector.vendor, model: selector.model) else { return false }
+        return ext.isActive
+    }
 }
 
 // MARK: - Mirror (public API)
@@ -174,6 +186,11 @@ final class MirrorActuator: Actuator {
             restoreArrangement(ext: fresh, record: record)
         }
         State.disabled = nil
+    }
+
+    func isConnected() -> Bool? {
+        guard let ext = Displays.external(vendor: selector.vendor, model: selector.model) else { return false }
+        return ext.mirrorOf == kCGNullDirectDisplay
     }
 
     private func configure(_ label: String, _ body: (CGDisplayConfigRef) -> CGError) throws {
